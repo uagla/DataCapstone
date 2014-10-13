@@ -1,0 +1,187 @@
+TextPrediction: Modelling Text Prediction Application
+========================================================
+
+## Background
+In recent years, the usage of electronic devices  (smartphones, tablets, etc..) for email, social networking, banking and other whole range of activities, has increased enormously.  Making an error when typing words in these devices could lead, sometimes, to serious problems. 
+All information is stored in large databases. These huge datasets comprising of text in a target language are commonly used when generating language models for various purposes. The most known purpose is the text prediction. Text prediction can be considered as a sequential process over time with an input stream of characters. The task is to predict the next character given a string representing the input history. Based on these characteristics, an useful solution to the typing mistakes would be the use of an application that could suggest the most likely word considering an already typed text. 
+In this project we aim to develop a text predictive algorithm of a big data set comprising text data from different sources (blogs, news and twitter) and languages (english, german, russinan and finish) in order to develop an application based on this 
+model. 
+
+## Data Prepocessing 
+
+First of all, data from a corpus called HC Corpora (www.corpora.heliohost.org) has been downloaded. It is comprised of four locales (one of each language: english, russian, german and finish) of data from blogs, news and twitter. 
+One downloaded data to the local drive the following criteria was followed: (1) data from english language and (2) a subset of the whole set was used (number of lines were selected according to the contribution in the whole data set).  
+
+After that, Uni-, Bi-, and Tri-grams have been developed and a sparse matrix of them computed. These matrices were performed in order to display each word/set of words with their frequencies in the considered Corpus. Then, these dataframes (named as **MatrixFreqUni2**, **MatrixFreqBi2** and **MatrixFreqTri2**) were sorted in ascending order by frequencies, so that the most frequent Terms would appear in the top part of the matrices. Furthermore, in order to relate Bigrams with Unigrams and so on, another two datasets were developed (**proof_definitive_BiUni** - Bi-Unigram relationship and **proof_definitive2**, Tri-Bigramm relationship). For instance, in the **proof_definitive_BiUni** dataset, the first two columns are composed by the Bigram Terms and their frequencies. The last two ones, based on the observed Bigrams, the corresponding Unigram and the potential predicted word are stored. In the same way was created the other aforementioned mentioned matrix. 
+
+All these datasets were used for the text prediction application. In order to make easier the data management, all of them were saved to a .RData file, named as **Prediction.RData**. 
+
+
+## Methodology
+First of all, needed data sets have been loaded. In this case, **Prediction.RData** is comprised by all necessary datasets. 
+```{r, results='hide'}
+pathFile<-file.path(getwd(),"Prediction.RData")
+load(pathFile)
+```
+Once data was loaded, the TextPrediction model was developed. The development process was followed in this way, divided into two main parts:
+
+### (1) Tokenization of the input $S= w_{1}...w_{n}$ text
+
+As first step, the input S text has been homogeneized setting all the characters in lower cases. After that, S has been tokenized to identify: (1) the length of the of input; and (2) to construct the corresponding Bigram and Trigrams, so that we could be able to check their presence in their respective data set (**proof_definitive2**, as mentioned before).
+
+### (2) Main code
+
+Once tokenization has been done, the main part of the code function has been developed. The following criteria/guidelines was set up for the next word prediction:
+
+* (1) If the input text (S) is composed by only ONE word, the predicted word was based on the most frequent unigrams. 
+
+* (2) If $S=w_{1}...w_{n}, n\geq2$, i.e., the input text if has 2 or more words, 3-gramm modelling was used: 
+
+     (a) The corresponding Bigram is calculated. If this Bigram is unseen, that is, 
+           not present in the **proof_definitive2** dataset, then prediction by means 
+           of most frequent Unigrams was performed. 
+           
+      (b) In case the Bigram is found in the **proof_Definitive2** set 
+          is present, taking the Trigram based on the found Bigram, 
+          the predicted word would be the last part of Trigram.         
+          
+* (3) **Good-Turing discounting with Katz's modfication**
+
+  In order to get more accurate results, Good-Turing discounting combining with Katz's  correction has been used. The basic insight of Good-Turing smoothing is to re-estimate the amount of probability mass to assign to N-grams with zero or low counts
+by looking at the number of N-grams with higher counts. This discounted estimate is not used for all counts c. Large counts (where c >k for some threshold k) are assumed to be reliable. In order to use the usual formula, in the development of this algorithm, Katz's modification has been used, and setting k at 5. This is the discounting expression used in the function [1]. 
+
+Based on these criteria, the predictive function hase been developed, being the code the next one:
+
+* Tokenization
+
+```{r}
+library(tm)
+library(tau)
+TextToken<-function(input){
+  require(tm)
+  require(tau)
+  inputToken<-tokenize(tolower(input))
+  inputTokenDef<-inputToken[grep("[A-Za-z.,']",inputToken,perl=TRUE)]
+  return (inputTokenDef)
+}
+``` 
+
+* Main function
+```{r}
+TextPrediction<-function(input=NULL){
+  # cat("This algorithm predicts the next word given the a set of previous ones")
+  
+  ## First check whether the input text is null and tokenize it.
+  chain<-TextToken(input)
+  
+  ## In case the lenght of the chain is 1, wwe use Unigrams to predict the word. In other cases, we introduce Bigrams and Trigrams
+  if(length(chain)==1){
+    
+    # We show the three most frequent Unigrams
+    
+    Unigram<-MatrixFreqUni2$Term[1:3]
+    #return(data.frame(Unigram))
+    PredictionWords<-paste(paste(Unigram[1],Unigram[2],sep=" "), Unigram[3], sep=" ")
+    return (PredictionWords)
+    
+    
+  }
+  if (length(chain)>1){
+    
+    BichainSet<-chain[(length(chain)-1):length(chain)]   ### we subset the tokinized chain, considering only the last two vector components.
+    BichainGram<-paste(BichainSet[1],BichainSet[2],sep=" ")   ### we create the Bigram with the subset in order to seek in the Bigram Matrix in the next step
+    
+    ## we search in the Bigram Frequency Matrix the subsetted chain
+    BiCountSearch<-proof_definitive_BiUni[which(proof_definitive_BiUni$Term==BichainGram),2]
+    
+    if (length(BiCountSearch)==0){
+      
+      ## in case there is no matches in the dataset we use the most frequent Unigrams
+      Unigram<-MatrixFreqUni2$Term[1:3]
+      PredictionWords<-paste(paste(Unigram[1],Unigram[2],sep=" "), Unigram[3], sep=" ")
+      return (PredictionWords)
+      
+    }
+    #### Good-Turing and Katz's Back Off algorithm for correcting
+    
+    GTBackOff<-matrix(NA,nrow=7,ncol=4)
+    GTBackOff[1:7,1]<-c(0,1,2,3,4,5,6)
+    UniFreq<-data.frame(Uni=table(MatrixFreqUni2$Frequency))
+    BiFreq<-data.frame(Bi=table(proof_definitive_BiUni$Frequency))
+    TriFreq<-data.frame(Tri=table(proof_definitive2$Frequency))
+    
+    GTBackOff[1,2]<-length(MatrixFreqUni2$Frequency)-length(UniFreq$Uni.Freq)                #### for the Unigrams
+    GTBackOff[1,3]<-length(MatrixFreqUni2$Frequency)^2-length(BiFreq$Bi.Freq)                #### for the Bigrams
+    GTBackOff[1,4]<-length(MatrixFreqUni2$Frequency)^3-length(TriFreq$Tri.Freq)              #### for the Trigrams
+    GTBackOff[2:7,2] <- UniFreq[1:6,2]
+    GTBackOff[2:7,3] <- BiFreq[1:6,2]
+    GTBackOff[2:7,4] <- TriFreq[1:6,2]
+    k<- 6*GTBackOff[7,4]/GTBackOff[2,4] # for k = 5
+    for (c in 0:5){
+      numerator<-(c+1)*GTBackOff[c+2,4]/GTBackOff[c+1,4]-(c)*k
+      denominator<- 1-k
+      GTBackOff[c+1,4]<-numerator/denominator
+    }
+    colnames(GTBackOff)<-c("count","uni","bi","tri")
+    
+    ## we apply the Good Turing discount and Katz's Back-off Smoothing correction according to Jurafsky&Martin ()
+    if (BiCountSearch<=5) BiCountSearch<-GTBackOff[BiCountSearch+1,2]
+    
+    ## We define the query for searching the Trigrams which begin for the given Bigram
+    TrigramPotential<-grepl(paste("^",BichainGram,"$",sep=""),proof_definitive2$TokeBigram)
+    Triset<-proof_definitive2[TrigramPotential,]
+    leftgramm=0 
+    rown=1
+    numberTris<-nrow(Triset)    ### number of distinct Trigrams which start with the specified Bigram
+    if(numberTris==1){
+      outputTri<-Triset
+      Frequency<-Triset[1,2]
+      if (Frequency<=5) Triset[1,2]<-GTBackOff[2,4]
+    }
+    else 
+    {
+      mantain <- numberTris-1
+      while(leftgramm<3 && mantain>0) {
+        if(Triset[rown+1,2]!=Triset[rown,2]) {
+          leftgramm=leftgramm+1
+        }
+        rown<-rown+1
+        mantain<-mantain-1
+      }
+      if(leftgramm==0){
+        outputTri<-Triset[1:rown,]
+      }
+      else 
+      {
+        outputTri<-Triset[1:rown-1,]
+      }
+      for(i in 1:length(outputTri$Frequency)) {
+        Frequency=Triset[i,2]
+        if(Frequency<=5) Triset[i,2]<-GTBackOff[Frequency+1,3]
+        
+     } 
+      
+      
+    }
+    
+    PredictionWords<-paste(paste(outputTri$prediction[1],outputTri$prediction[2],sep=" "), outputTri$prediction[3], sep=" ")
+    return (PredictionWords)
+  }
+}
+```
+
+Once executed the codes, here there are some examples:
+
+## Examples
+
+```{r}
+TextPrediction("you")
+TextPrediction("New York")
+```
+
+## Conclusion
+
+Text mining is a powerful tool for making predictive text models. It has allowed us to understand the structure of the dataset to be analyzed. We have developed a text prediction model based on Trigrams, where given an inout text, it predicts the next word. With this predictive model, a web application will be performed. 
+
+## References
+1. Jurafsky, D. and Martin, J.H.M.Speech and Language Processing. An Introduction to Natural Language Processing, Computational Linguistics and Speech Recognition (2009). Prentice-Hall, New Jersey. 
